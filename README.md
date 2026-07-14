@@ -68,15 +68,12 @@ The script will then fetch the thread, print the reconstructed conversation, ext
 
 ## Security notes
 
-⚠️ **Do not commit real credentials or API keys to this repository.**
 
 - The current version has a hardcoded OpenAI API key in the source. Before pushing this to git, remove it and load it from an environment variable instead, e.g.:
-
   ```python
   import os
   LLM_API_KEY = os.environ["OPENAI_API_KEY"]
   ```
-
 - The mailbox password is entered at runtime via `getpass` and is not written to disk, but it is held in memory in plain text for the duration of the run.
 - SSL certificate verification is disabled for the SMTP connection (`context.check_hostname = False`, `context.verify_mode = ssl.CERT_NONE`). This is convenient for internal mail servers with self-signed certs, but it removes protection against man-in-the-middle attacks — only do this on a trusted network.
 - If your account has MFA enabled, you'll likely need an app-specific password for EWS/SMTP to work.
