@@ -38,16 +38,23 @@ pip install nltk requests exchangelib beautifulsoup4
 
 ## Configuration
 
-Before running, set the following in the script (or, better, move them to environment variables — see **Security** below):
+Configuration is read from environment variables so no operator-specific host or secret is hardcoded in the source:
 
-| Variable | Description |
+| Environment variable | Description |
 |---|---|
-| `SMTP_SERVER` | Your outgoing mail server, e.g. `mail.example.com` |
-| `SMTP_PORT` | `587` (STARTTLS) or `465` (SSL) |
-| `LLM_API_ENDPOINT` | OpenAI chat completions endpoint |
-| `LLM_MODEL_NAME` | e.g. `gpt-3.5-turbo` |
-| `LLM_API_KEY` | Your OpenAI API key |
-| `LLM_SIMULATION` | Set to `True` to test the flow without calling the real API (returns canned responses) |
+| `SMTP_SERVER` | Your outgoing mail server, e.g. `smtp.example.com` (required) |
+| `SMTP_PORT` | `587` (STARTTLS) or `465` (SSL). Defaults to `587` |
+| `SMTP_VERIFY_TLS` | `true` (default) verifies the server's TLS certificate. Set to `false` only for internal servers with self-signed certs on a trusted network |
+| `OPENAI_API_KEY` | Your OpenAI API key (required unless `LLM_SIMULATION` is on) |
+
+`LLM_API_ENDPOINT`, `LLM_MODEL_NAME`, and `LLM_SIMULATION` remain in-script settings (set `LLM_SIMULATION = True` to test the flow without calling the real API).
+
+Example:
+
+```bash
+export SMTP_SERVER="smtp.example.com"
+export OPENAI_API_KEY="sk-..."
+```
 
 ## Usage
 
@@ -69,13 +76,10 @@ The script will then fetch the thread, print the reconstructed conversation, ext
 ## Security notes
 
 
-- The current version has a hardcoded OpenAI API key in the source. Before pushing this to git, remove it and load it from an environment variable instead, e.g.:
-  ```python
-  import os
-  LLM_API_KEY = os.environ["OPENAI_API_KEY"]
-  ```
+- The OpenAI API key and mail server host are loaded from environment variables (`OPENAI_API_KEY`, `SMTP_SERVER`); nothing operator-specific or secret is hardcoded in the source.
+- User-supplied email addresses are validated before use; malformed recipients are skipped and an invalid sender aborts the run.
 - The mailbox password is entered at runtime via `getpass` and is not written to disk, but it is held in memory in plain text for the duration of the run.
-- SSL certificate verification is disabled for the SMTP connection (`context.check_hostname = False`, `context.verify_mode = ssl.CERT_NONE`). This is convenient for internal mail servers with self-signed certs, but it removes protection against man-in-the-middle attacks — only do this on a trusted network.
+- SSL certificate verification is **enabled by default** for the SMTP connection. It can be disabled with `SMTP_VERIFY_TLS=false` for internal mail servers with self-signed certs, but doing so removes protection against man-in-the-middle attacks — only do this on a trusted network.
 - If your account has MFA enabled, you'll likely need an app-specific password for EWS/SMTP to work.
 
 ## Known limitations
