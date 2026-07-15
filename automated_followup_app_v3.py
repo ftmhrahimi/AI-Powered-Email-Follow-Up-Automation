@@ -11,6 +11,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import ssl
+import os
 import getpass
 import datetime
 
@@ -21,15 +22,31 @@ from bs4 import BeautifulSoup
 # ----------------------------
 
 # --- GLOBAL CONFIGURATIONS ---
-SMTP_SERVER = "mail.mtnirancell.ir"
-SMTP_PORT = 587
+# Mail server settings are read from the environment so no internal/operator-specific
+# host is hardcoded in the source. Set SMTP_SERVER (and optionally SMTP_PORT) before running.
+SMTP_SERVER = os.environ.get("SMTP_SERVER", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+
+# When true, verify the SMTP server's TLS certificate (the safe default). Only set
+# SMTP_VERIFY_TLS=false for internal servers with self-signed certs on a trusted network.
+SMTP_VERIFY_TLS = os.environ.get("SMTP_VERIFY_TLS", "true").strip().lower() != "false"
 
 # LLM Configuration (OpenAI API)
 LLM_API_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 LLM_MODEL_NAME = "gpt-3.5-turbo"
+# API key is loaded from the environment, never hardcoded in source.
+LLM_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 LLM_SIMULATION = False
 # -----------------------------
+
+# Basic RFC-5322-ish email validation used to sanitize user-supplied addresses.
+EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+
+def is_valid_email(address):
+    """Return True if the given string looks like a valid email address."""
+    return bool(address) and bool(EMAIL_REGEX.match(address.strip()))
 
 # --- LLM API Call Function (UNCHANGED) ---
 def call_llm(prompt_text, model_name, api_endpoint, api_key):
@@ -167,8 +184,12 @@ def send_email(subject, body_html, to_addresses, sender_email, sender_password, 
 
     try:
         context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
+        if not SMTP_VERIFY_TLS:
+            # Opt-in insecure mode for internal servers with self-signed certs.
+            # Disables MITM protection — only use on a trusted network.
+            print("WARNING: TLS certificate verification is DISABLED (SMTP_VERIFY_TLS=false).")
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
 
         if smtp_port == 587:
             server = smtplib.SMTP(smtp_server, smtp_port)
@@ -246,17 +267,38 @@ def run_automated_followup_app():
     print("  Automated Follow-up Email Generation Application  ")
     print("="*60)
 
+    if not SMTP_SERVER:
+        print("ERROR: SMTP_SERVER is not configured. Set the SMTP_SERVER environment variable.")
+        return
+
     print("\nPlease enter your email details to fetch and send emails:")
-    user_email = input("Your Company Email Address (e.g., your.name@mtnirancell.ir): ").strip()
+    user_email = input("Your Company Email Address (e.g., your.name@example.com): ").strip()
+    if not is_valid_email(user_email):
+        print(f"ERROR: '{user_email}' is not a valid email address. Application cannot proceed.")
+        return
     user_password = getpass.getpass("Your Email Password (will not be shown): ").strip()
 
     search_subject = input("Enter the EXACT Subject of the email thread to analyze: ").strip()
     recipient_emails_str = input("Enter recipient email(s) for the follow-up (comma-separated): ").strip()
-    recipient_emails = [email.strip() for email in recipient_emails_str.split(',') if email.strip()]
+
+    # Sanitize recipient input: keep only well-formed addresses, warn about the rest.
+    recipient_emails = []
+    for candidate in recipient_emails_str.split(','):
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        if is_valid_email(candidate):
+            recipient_emails.append(candidate)
+        else:
+            print(f"WARNING: Ignoring invalid recipient email: '{candidate}'")
 
     if not recipient_emails:
-        print("WARNING: No recipient emails entered. Sending to your own email as fallback.")
+        print("WARNING: No valid recipient emails entered. Sending to your own email as fallback.")
         recipient_emails = [user_email]
+
+    if not LLM_SIMULATION and not LLM_API_KEY:
+        print("ERROR: OPENAI_API_KEY is not set. Set the environment variable or enable LLM_SIMULATION.")
+        return
 
     print("\nStarting Automated Follow-up Process...")
 
@@ -319,7 +361,8 @@ Conversation:
     print("\n--- Step 4: Identifying Recipients ---")
     all_participants_from_fetched = set()
     for msg in fetched_emails:
-        all_participants_from_fetched.add(msg['sender'])
+        if is_valid_email(msg['sender']):
+            all_participants_from_fetched.add(msg['sender'])
 
     final_recipients = list(set(recipient_emails + list(all_participants_from_fetched)))
 
